@@ -1,7 +1,7 @@
 package com.deepak.embabel.Blog.Agent.agent;
 
-import com.deepak.embabel.Blog.Agent.entity.BlogDraft;
-import com.deepak.embabel.Blog.Agent.entity.ReviewedPost;
+import com.deepak.embabel.Blog.Agent.entity.*;
+import com.deepak.embabel.Blog.Agent.tool.ReadingStatsTool;
 import com.embabel.agent.api.annotation.AchievesGoal;
 import com.embabel.agent.api.annotation.Action;
 import com.embabel.agent.api.annotation.Agent;
@@ -9,11 +9,12 @@ import com.embabel.agent.api.common.Ai;
 import com.embabel.agent.domain.io.UserInput;
 import com.embabel.common.ai.model.LlmOptions;
 import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.logging.Logger;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Agent(
         name = "Blog Writer Agent",
@@ -23,17 +24,19 @@ public class BlogWriterAgent {
 
   private final BlogAgentProperties blogAgentProperties;
   private static final org.slf4j.Logger log = LoggerFactory.getLogger(BlogWriterAgent.class);
-  public BlogWriterAgent(BlogAgentProperties blogAgentProperties) {
+  private  final ReadingStatsTool readingStatsTool;
+  public BlogWriterAgent(BlogAgentProperties blogAgentProperties, ReadingStatsTool readingStatsTool) {
     this.blogAgentProperties = blogAgentProperties;
+      this.readingStatsTool = readingStatsTool;
   }
 
 
     @Action(description = "Write a first draft of the blog post")
-      public BlogDraft writeDraft(UserInput userInput, Ai ai){
+      public DraftPost writeDraft(UserInput userInput, Ai ai){
           return ai.withLlm(LlmOptions.withDefaultLlm())
                   .withId("blog-post-draft-writer")
                   .withPromptContributor(Personas.BLOG_WRITER)
-                  .creating(BlogDraft.class)
+                  .creating(DraftPost.class)
                   .fromPrompt("""
                           Write a blog post about: %s
                           Keep it practical and beginner friendly.
@@ -43,9 +46,8 @@ public class BlogWriterAgent {
                           """.formatted(userInput.getContent()));
       }
 
-      @AchievesGoal(description = "Produce a final version of the blog post that is ready for publication")
       @Action(description = "Review and improve the draft")
-      public ReviewedPost reviewDraft(BlogDraft blogDraft, Ai ai){
+      public ReviewedPost reviewDraft(DraftPost blogDraft, Ai ai){
         ReviewedPost reviewed= ai.withLlm(LlmOptions.withLlmForRole("reviewer"))
                 .withId("blog-post-reviewer")
                 .withPromptContributor(Personas.BLOG_REWIEWER)
@@ -61,10 +63,91 @@ public class BlogWriterAgent {
 
          writeToFile(reviewed);
         return reviewed;
-
       }
 
-  private void writeToFile(ReviewedPost post) {
+      @Action(description = "An agent that creates a TLDR summary for a blog post and add to the top of blog post")
+      public FinalPost addTLDR(ReviewedPost reviewedPost, Ai ai){
+        String tldr = ai
+                .withDefaultLlm()
+                .withId("blog-post-tldr")
+                .creating(String.class)
+                .fromPrompt("""
+                        Write a one or two sentence TLDR summary for this blog post.
+                        Return only the summary text, nothing else.
+
+                        Title: %s
+                        Content:
+                        %s
+                        """.formatted(reviewedPost.title(), reviewedPost.content()));
+
+        String contentWithTldr = "> **TLDR:** " + tldr + "\n\n" + reviewedPost.content();
+
+        return new FinalPost(reviewedPost.title(), contentWithTldr, reviewedPost.feedback());
+      }
+
+      @AchievesGoal(description = "A reviewed and polished blog post with front matter")
+      @Action(description = "Add front matter to the top of the blog post")
+      public PublishedPost addFrontMatter(FinalPost post, Ai ai){
+        FrontMatter frontMatter = ai
+                .withDefaultLlm()
+                .withToolObject(readingStatsTool)
+                .withId("blog-post-front-matter")
+                .withPromptContributors(List.of(Personas.JSON_OUTPUT))
+                .creating(FrontMatter.class)
+                .fromPrompt("""
+                        Generate front matter metadata for this blog post.
+                        Provide a concise description (1-2 sentences), relevant tags, and up to %d keywords.
+
+                        Use the calculateReadingStats tool on the post content below to compute
+                        the read time. Put the tool's exact return string into the readTime field.
+
+                        Title: %s
+                        Content:
+                        %s
+                        """.formatted(blogAgentProperties.numberOfKeywords(), post.title(), post.content()));
+
+        String slug= post.title()
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-|-$", "");
+
+        String tags = frontMatter.tags().stream()
+                .map(tag -> "  - " + tag)
+                .collect(Collectors.joining("\n"));
+
+        String keywords = frontMatter.keywords().stream()
+                .map(keyword -> "  - " + keyword)
+                .collect(Collectors.joining("\n"));
+        String frontMatterBlock = """
+                ---
+                title: "%s"
+                slug: %s
+                date: "%sT08:00:00.000Z"
+                published: true
+                description: "%s"
+                author: "Deepak Jaiswar"
+                readTime: "%s"
+                tags:
+                %s
+                keywords:
+                %s
+                ---
+                """.formatted(
+                post.title(),
+                slug,
+                LocalDate.now(),
+                frontMatter.description(),
+                frontMatter.readTime(),
+                tags,
+                keywords
+        );
+        String contentWithFrontMatter = frontMatterBlock + "\n" + post.content();
+        PublishedPost publishedPost = new PublishedPost(post.title(), contentWithFrontMatter, post.feedback());
+        writeToFile(publishedPost);
+        return publishedPost;
+      }
+
+  private void writeToFile(BlogPost post) {
     String filename = post.title()
             .toLowerCase()
             .replaceAll("[^a-z0-9]+", "-")

@@ -4,6 +4,7 @@ spring:
 
 blog-agent:
   output-dir: blog-posts
+  number-of-keywords: 5
 
 embabel:
   agent:
@@ -11,8 +12,11 @@ embabel:
       models:
         openai:
           api-key: ${OPENAI_API_KEY}
+    logging:
+      personality: starwars
 
   models:
     default-llm: gpt-4o-mini
     llms:
       reviewer: gpt-5-mini
+

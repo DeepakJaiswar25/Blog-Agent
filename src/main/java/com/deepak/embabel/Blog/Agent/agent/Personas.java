@@ -1,6 +1,7 @@
 package com.deepak.embabel.Blog.Agent.agent;
 
 import com.embabel.agent.prompt.persona.RoleGoalBackstory;
+import com.embabel.common.ai.prompt.PromptContributor;
 
 abstract class Personas {
 
@@ -15,4 +16,10 @@ abstract class Personas {
             "Review and polish technical blog posts",
             "Seasoned editor focused on clarity, accuracy and tight writing"
     );
+
+    static final PromptContributor JSON_OUTPUT = PromptContributor.fixed("""
+            IMPORTANT: Your response will be parsed as JSON.
+            You MUST escape all double quotes inside string values with a backslash.
+            For example: "content": "She said \\"hello\\""
+            """);
 }
