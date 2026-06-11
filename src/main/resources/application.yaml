@@ -2,9 +2,19 @@ spring:
   application:
     name: Blog-Agent
 
+  ai:
+    mcp:
+      client:
+        stdio:
+          servers-configuration: classpath:server.json
+
+
 blog-agent:
   output-dir: blog-posts
   number-of-keywords: 5
+
+
+
 
 embabel:
   agent:
@@ -12,6 +22,14 @@ embabel:
       models:
         openai:
           api-key: ${OPENAI_API_KEY}
+      tools:
+        includes:
+          tavily:
+            description: "Search the web using Tavily AI search"
+            provider: tavily-mcp
+            tools:
+              - tavily_search
+              - tavily_extract
     logging:
       personality: starwars
 

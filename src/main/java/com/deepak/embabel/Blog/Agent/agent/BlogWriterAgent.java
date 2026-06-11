@@ -6,6 +6,7 @@ import com.embabel.agent.api.annotation.AchievesGoal;
 import com.embabel.agent.api.annotation.Action;
 import com.embabel.agent.api.annotation.Agent;
 import com.embabel.agent.api.common.Ai;
+import com.embabel.agent.core.CoreToolGroups;
 import com.embabel.agent.domain.io.UserInput;
 import com.embabel.common.ai.model.LlmOptions;
 import org.slf4j.LoggerFactory;
@@ -31,26 +32,49 @@ public class BlogWriterAgent {
   }
 
 
+  @Action(description = "Research the topic using web search")
+  public ResearchedTopic getResearchedTopic(UserInput userInput,Ai ai) {
+    return ai.withLlm(LlmOptions.withDefaultLlm())
+            .withToolGroup("tavily")
+            .withId("blog-post-researcher")
+            .creating(ResearchedTopic.class)
+            .fromPrompt("""
+                        Research the following topic using web search tools.
+                        Find current, relevant, and accurate information.
+                        Limit yourself to no more than 3 web searches to avoid rate limiting.
+
+                        Topic: %s
+
+                        Provide the original topic and a concise summary
+                        of your findings that would be useful for writing a blog post.
+                        """.formatted(userInput.getContent()));
+  }
+
+
     @Action(description = "Write a first draft of the blog post")
-      public DraftPost writeDraft(UserInput userInput, Ai ai){
-          return ai.withLlm(LlmOptions.withDefaultLlm())
+      public DraftPost writeDraft(ResearchedTopic researchedTopic, Ai ai){
+          return ai.withLlm(LlmOptions.withDefaultLlm().withMaxTokens(16384))
                   .withId("blog-post-draft-writer")
-                  .withPromptContributor(Personas.BLOG_WRITER)
+                  .withPromptContributors(List.of(Personas.BLOG_WRITER,Personas.JSON_OUTPUT))
                   .creating(DraftPost.class)
                   .fromPrompt("""
-                          Write a blog post about: %s
-                          Keep it practical and beginner friendly.
-                          Use short sentences and plain Language.
-                          Include code examples but keep them short and simple.
-                          Write the content in Markdown.
-                          """.formatted(userInput.getContent()));
+                        Write a blog post about: %s
+
+                        Use the following research to inform your writing:
+                        %s
+
+                        Keep it practical and beginner friendly.
+                        Use short sentences and plain language.
+                        Include code examples but keep them short and simple.
+                        Write the content in Markdown.
+                        """.formatted(researchedTopic.topic(), researchedTopic.research()));
       }
 
       @Action(description = "Review and improve the draft")
       public ReviewedPost reviewDraft(DraftPost blogDraft, Ai ai){
         ReviewedPost reviewed= ai.withLlm(LlmOptions.withLlmForRole("reviewer"))
                 .withId("blog-post-reviewer")
-                .withPromptContributor(Personas.BLOG_REWIEWER)
+                .withPromptContributors(List.of(Personas.BLOG_REWIEWER,Personas.JSON_OUTPUT))
                 .creating(ReviewedPost.class)
                 .fromPrompt("""
                        

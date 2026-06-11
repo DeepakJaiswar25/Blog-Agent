@@ -18,8 +18,9 @@ abstract class Personas {
     );
 
     static final PromptContributor JSON_OUTPUT = PromptContributor.fixed("""
-            IMPORTANT: Your response will be parsed as JSON.
-            You MUST escape all double quotes inside string values with a backslash.
-            For example: "content": "She said \\"hello\\""
+            Return ONLY JSON.
+            No markdown.
+            No explanations.
+            Must match the target object exactly.
             """);
 }
